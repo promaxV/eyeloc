@@ -1,11 +1,10 @@
 import cv2
-
 import numpy as np
 
-from .peaks import *
+from .peaks import PolarPeaks, grad_peaks, canny_peaks, curvefit_peaks
 
 from ..fitting import fitCircleLS
-from ..filters import SimpleMedian, CircleRANSAC
+from ..filters import SimpleMedian
 from ..prepocessing import image_preprocessing
 from ..localizers import Find
 from ..center_estimation import CenterEstimation, darkestPixel, largestComponentCentroid
@@ -23,7 +22,7 @@ class PolarFinder():
         self.mode = mode
         self.center_estimation_mode = center_estimation_mode
         self.peaks_find_method = peaks_find_method
-        if angles == None:
+        if angles is None:
             self.angles = range(128)
             # if mode == Find.Pupil:
             #     self.angles = range(128)
@@ -32,7 +31,7 @@ class PolarFinder():
         else:
             self.angles = angles
             
-        if filter_model == None:
+        if filter_model is None:
             if mode == Find.Pupil:
                 self.filter_model = SimpleMedian(1)
             elif mode == Find.Iris:
@@ -42,6 +41,11 @@ class PolarFinder():
             self.filter_model = filter_model
             
         self.fitting_method = fitting_method
+        
+        # Предвычисляем углы в радианах
+        self.angles_rad = np.array(self.angles) * 2 * np.pi / 128
+        self.sin_angles = np.sin(self.angles_rad)
+        self.cos_angles = np.cos(self.angles_rad)
 
     def find(self, source):
         if self.mode == Find.Pupil:
@@ -62,8 +66,8 @@ class PolarFinder():
         # POLAR WARP
         maxRad = 90.50966799187809
         img = img.astype(np.float32)
-        polar = cv2.linearPolar(img, self.center_estimation, maxRad, cv2.WARP_FILL_OUTLIERS).astype(np.uint8)
         
+        polar = cv2.linearPolar(img, self.center_estimation, maxRad, cv2.WARP_FILL_OUTLIERS).astype(np.uint8)
         polar = cv2.medianBlur(polar, 9)
         
         # PEAKS SEARCHING
@@ -76,19 +80,22 @@ class PolarFinder():
         elif self.peaks_find_method == PolarPeaks.FuncFitting:
             peaks = curvefit_peaks(polar, self.angles, mode_func)
                 
-        normalized_peaks = np.array([peak*maxRad/128 for peak in peaks])
-        angles_rad = np.array(self.angles)*2*np.pi/128
+        normalized_peaks = np.array(peaks) * maxRad / 128
         
-        xs = np.full((len(self.angles),), self.center_estimation[1])+np.sin(angles_rad)*normalized_peaks
-        ys = np.full((len(self.angles),), self.center_estimation[0])+np.cos(angles_rad)*normalized_peaks
-        edge_points = np.vstack([ys, xs]).T
+        # Векторизованное вычисление координат
+        center_x, center_y = self.center_estimation
+        xs = center_y + self.sin_angles * normalized_peaks
+        ys = center_x + self.cos_angles * normalized_peaks
+        edge_points = np.column_stack([ys, xs])
         
-        # SIMPLE FILTERING
-        edge_points = np.where(edge_points < 128, edge_points, -1)
-        edge_points = edge_points[edge_points[:, 0] > 0]
-        edge_points = edge_points[edge_points[:, 1] > 0]
-        edge_points = edge_points[edge_points[:, 0] < 127]
-        edge_points = edge_points[edge_points[:, 1] < 127]
+        # Векторизованная фильтрация
+        valid_mask = (
+            (edge_points[:, 0] >= 0) & 
+            (edge_points[:, 1] >= 0) & 
+            (edge_points[:, 0] < 127) & 
+            (edge_points[:, 1] < 127)
+        )
+        edge_points = edge_points[valid_mask]
         
         if self.fitting_method == fitCircleLS:
             if len(edge_points) < 3:

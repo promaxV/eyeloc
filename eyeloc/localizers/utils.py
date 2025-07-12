@@ -9,7 +9,7 @@ class Find(Enum):
     # TODO Add more targets: eyelids, etc.
 
 def delete_constant_tail(lst, const = None):
-    if const == None:
+    if const is None:
         const = lst[-1]
     for i, x in enumerate(lst[::-1]):
         if x != const:
@@ -36,16 +36,19 @@ def eye_func_half(x_arr,
                 right_half_parabola_a = (right_const_y-right_line_y)/((right_line_x-right_const_lpx-right_const_length)**2)
                 right_half_parabola_b = 2*right_half_parabola_a*(right_const_lpx+right_const_length-right_line_x)
                 return_list.append(right_half_parabola_a*(x - right_const_lpx - right_const_length)**2 + right_half_parabola_b*(x - right_const_lpx - right_const_length) + right_const_y)
-            else: return_list.append(right_line_a*x + right_line_y - right_line_a*right_line_x)
+            else:
+                return_list.append(right_line_a*x + right_line_y - right_line_a*right_line_x)
             
         return return_list
     
 def autoScaleABC(image):
-    min_v = image.min()
-    max_v = image.max()
-    a = 255/(max_v-min_v)
-    b = 255*(1-max_v/(max_v-min_v))
-    return np.clip(a*image+b, 0, 255)
+    # Используем более эффективные NumPy операции
+    min_v, max_v = image.min(), image.max()
+    if max_v == min_v:  # Избегаем деления на ноль
+        return image
+    
+    scale = 255.0 / (max_v - min_v)
+    return np.clip(scale * (image - min_v), 0, 255)
     
 def sharpen(image, weight=0.5, gauss_ksize=0, gauss_sigmaX = 5, gamma=0):
     blured_eye = cv2.GaussianBlur(image, (gauss_ksize, gauss_ksize),  gauss_sigmaX)

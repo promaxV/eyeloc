@@ -1,5 +1,4 @@
 import numpy as np
-
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
 from cv2 import Canny
@@ -14,11 +13,13 @@ class PolarPeaks(Enum):
     Canny = 2
 
 def grad_peaks(polar, angles, mode_func):
+    # Векторизованное вычисление градиентов для всех углов сразу
+    selected_rows = polar[angles]
+    derivatives = np.gradient(selected_rows, axis=1)
+    derivatives = np.clip(derivatives, 0, None)
+    
     peaks = []
-    for ang in angles:
-        # vals = delete_constant_tail(, 0)
-        deriv = np.gradient(polar[ang])
-        deriv = np.clip(deriv, 0, None)
+    for i, deriv in enumerate(derivatives):
         maximas, _ = find_peaks(deriv)
         if len(maximas) > 2:
             ind_max = np.argpartition(deriv[maximas], -2)[-2:]
@@ -29,10 +30,13 @@ def grad_peaks(polar, angles, mode_func):
     return peaks
 
 def canny_peaks(polar, angles, mode_func):
-    peaks = []
+    # Применяем Canny один раз для всего изображения
     canny_polar = Canny(polar, 0, 255)
-    for ang in angles:
-        first_two = np.argwhere(canny_polar[ang] > 0)[:2]
+    selected_rows = canny_polar[angles]
+    
+    peaks = []
+    for row in selected_rows:
+        first_two = np.where(row > 0)[0][:2]
         if len(first_two) != 0:
             peaks.append(mode_func(first_two))
         else:

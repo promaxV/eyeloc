@@ -1,5 +1,4 @@
 import numpy as np
-
 from cv2 import fitEllipse
 
 from ..fitting import fitCircleLS, ellipse_distance
@@ -13,39 +12,36 @@ class CircleRANSAC():
 
         self.__return_best_candidate = __return_best_candidate
         
+        # Предвычисляем случайные выборки
+        self._precompute_random_samples()
+        
+    def _precompute_random_samples(self):
+        """Предвычисляем случайные выборки для ускорения"""
+        self._random_samples = []
+        for seed in range(self.max_iter):
+            np.random.seed(seed)
+            self._random_samples.append(np.random.randint(0, 1000, 3))
+    
     def filter(self, points):
         best_mse = 10000
         best_sample_ind = []
         
-        random_samples = []
-        init_list = list(range(len(points)))
-        iterations = (self.max_iter//(len(points)//3*3)+1)*3
-        random_seeds = list(range(iterations))
-        for random_seed in random_seeds:
-            np.random.seed(random_seed)
-            np.random.shuffle(init_list)
-            random_samples.append(np.array(init_list[:len(init_list)//3*3]).reshape(-1, 3))
-        
-        random_samples = np.array(random_samples).reshape(-1, 3)
-        
-        # for _ in range(self.max_iter):
-        for random_sample_indeces in random_samples:
-            # random_sample_indeces = np.random.choice(len(points), 3, replace=False)
+        for i in range(min(self.max_iter, len(self._random_samples))):
+            # Используем предвычисленные индексы
+            sample_indices = self._random_samples[i] % len(points)
             
-            circle_center, circle_radius = fitCircleLS(points[random_sample_indeces])
-            inliers_ind = []
-            distances = []
-            for i in range(len(points)):
-                point_distance = abs(np.linalg.norm(points[i] - circle_center) - circle_radius)
-                if point_distance < self.distance:
-                    inliers_ind.append(i)
-                    distances.append(point_distance)
-            if len(inliers_ind) >= self.inliers:
-                
-                mse = np.power(distances, 2).mean()
+            circle_center, circle_radius = fitCircleLS(points[sample_indices])
+            
+            # Векторизованное вычисление расстояний
+            point_distances = np.abs(np.linalg.norm(points - circle_center, axis=1) - circle_radius)
+            inliers_mask = point_distances < self.distance
+            
+            if np.sum(inliers_mask) >= self.inliers:
+                mse = np.mean(point_distances[inliers_mask]**2)
                 if mse < best_mse:
                     best_mse = mse
-                    best_center, best_radius, best_sample_ind = circle_center, circle_radius, inliers_ind
+                    best_center, best_radius = circle_center, circle_radius
+                    best_sample_ind = np.where(inliers_mask)[0]
                     
         if not self.__return_best_candidate:
             return points[best_sample_ind]

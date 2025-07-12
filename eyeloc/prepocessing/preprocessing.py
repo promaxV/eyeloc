@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from functools import lru_cache
 
 from ..localizers import sharpen, autoScaleABC
 
@@ -9,9 +10,6 @@ def equalizeHistInverse(image):
     cdf = hist.cumsum()
     cdf_normalized = (cdf - cdf.min()) * 255 / (cdf.max() - cdf.min())
     lookup_table = np.uint8(cdf_normalized)  # Таблица преобразования
-
-    # Применение эквализации
-    equalized_img = cv2.LUT(image, lookup_table)
 
     # Создаем пары (v, s), где v = lookup_table[s], и удаляем дубликаты v
     pairs = [(v, s) for s, v in enumerate(lookup_table)]
@@ -35,6 +33,11 @@ def equalizeHistInverse(image):
     # Применяем обратное преобразование с интерполяцией
     return cv2.LUT(image, inverse_lookup)
 
+@lru_cache(maxsize=32)
+def _get_structuring_element(morph_struct_element, size):
+    """Кэшируем структурные элементы для морфологических операций"""
+    return cv2.getStructuringElement(morph_struct_element, (size, size))
+
 def image_preprocessing(source, sharpen_weight = 1, sharpen_gauss_ksize = 3, sharpen_gamma_sigmaX = 1,
                         morph_struct_element = cv2.MORPH_CROSS, morph_blur_size = 9, morph_operations = [cv2.MORPH_OPEN], morph_iterations = [1],
                         median_blur_ksize = 9):
@@ -56,9 +59,12 @@ def image_preprocessing(source, sharpen_weight = 1, sharpen_gauss_ksize = 3, sha
     # SHARPENING
     img = sharpen(img, weight = sharpen_weight, gauss_ksize = sharpen_gauss_ksize, gauss_sigmaX = sharpen_gamma_sigmaX)
     
-    # BLURING
+    # Предварительно получаем структурный элемент
+    kernel = _get_structuring_element(morph_struct_element, morph_blur_size)
+    
+    # BLURING - используем предвычисленный kernel
     for operation, iterations in zip(morph_operations, morph_iterations):
-        img = cv2.morphologyEx(img, operation, cv2.getStructuringElement(morph_struct_element, (morph_blur_size, morph_blur_size)), iterations=iterations)
+        img = cv2.morphologyEx(img, operation, kernel, iterations=iterations)
     
     img = autoScaleABC(img)
     return img, inp
